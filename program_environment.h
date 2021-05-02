@@ -102,6 +102,19 @@ public:
     {
         memory[PC++] = toWrite;
     }
+
+    Byte pull_stack(MEM& memory)
+    {
+        SP--;
+        Byte toReturn = memory[SP];
+        memory[SP] = 0x00;
+        return toReturn;
+    }
+
+    void push_stack(Byte toWrite, MEM& memory)
+    {
+        memory[SP++] = toWrite;
+    }
 };
 
 class ProgramEnvironment

@@ -58,37 +58,44 @@ bool ProgramEnvironment::compile()
             {
                 if (tarsutils::get_bits(std::stoi(instructions[1].substr(1), nullptr, 16)) <= 8) // Zero Page
                 {
-                    memory[compilerPointer] = CPU::INS_LDA_ZP;
-                    compilerPointer++;
+                    if (instructions.size() != 2) { throw_instruction_exception(lines[i], instructions.size() - 1, 1); return false; }
+                    memory[compilerPointer++] = CPU::INS_LDA_ZP;
                     
-                    memory[compilerPointer] = (Byte) std::stoi(instructions[1].substr(1), nullptr, 16);
-                    compilerPointer++;
+                    memory[compilerPointer++] = (Byte) std::stoi(instructions[1].substr(1), nullptr, 16);
                 }
                 else if (tarsutils::get_bits(std::stoi(instructions[1].substr(1), nullptr, 16)) <= 16) // Absolute
                 {
-                    memory[compilerPointer] = CPU::INS_LDA_AS;
-                    compilerPointer++;
+                    if (instructions.size() != 2) { throw_instruction_exception(lines[i], instructions.size() - 1, 1); return false; }
+                    memory[compilerPointer++] = CPU::INS_LDA_AS;
 
                     Word givenWord = std::stoi(instructions[1].substr(1), nullptr, 16);
 
-                    memory[compilerPointer] = (Byte)(givenWord & 0x00FF);
-                    compilerPointer++;
-                    memory[compilerPointer] = (Byte)(givenWord >> 8);
-                    compilerPointer++;
+                    memory[compilerPointer++] = (Byte)(givenWord & 0x00FF);
+                    memory[compilerPointer++] = (Byte)(givenWord >> 8);
                 }
                 else { throw_possible_overflow_exception(lines[i], tarsutils::get_bits(std::stoi(instructions[1].substr(1), nullptr, 16)), 16); return false; }
             }
             else if (instructions[1].rfind("#", 0) == 0) // Immediate
             {
-                memory[compilerPointer] = CPU::INS_LDA_IM;
-                compilerPointer++;
+                if (instructions.size() != 2) { throw_instruction_exception(lines[i], instructions.size() - 1, 1); return false; }
+                memory[compilerPointer++] = CPU::INS_LDA_IM;
 
                 if (tarsutils::get_bits(std::stoi(instructions[1].substr(1), nullptr, 16)) <= 8)
                 {
-                    memory[compilerPointer] = std::stoi(instructions[1].substr(1), nullptr, 16);
+                    memory[compilerPointer++] = std::stoi(instructions[1].substr(1), nullptr, 16);
                 }
                 else { throw_possible_overflow_exception(lines[i], tarsutils::get_bits(std::stoi(instructions[1].substr(1), nullptr, 16)), 8); return false; }
             }
+        }
+        else if (instructions[0] == "pha")
+        {
+            if (instructions.size() != 1) { throw_instruction_exception(lines[i], instructions.size() - 1, 0); return false;  }
+            memory[compilerPointer++] = CPU::INS_PHA;
+        }
+        else if (instructions[0] == "pla")
+        {
+            if (instructions.size() != 1) { throw_instruction_exception(lines[i], instructions.size() - 1, 0); return false; }
+            memory[compilerPointer++] = CPU::INS_PLA;
         }
         else // Non supported instruction TODO: add support for labels
         {
@@ -123,6 +130,14 @@ bool ProgramEnvironment::run()
             Word value = processor.read_byte(memory) | (processor.read_byte(memory) << 8);
             std::cout << value << std::endl;
             processor.A = memory[value];
+        }break;
+        case CPU::INS_PHA:
+        {
+            processor.push_stack(processor.A, memory);
+        }break;
+        case CPU::INS_PLA:
+        {
+            processor.A = processor.pull_stack(memory);
         }break;
         case 0x00:
         {
