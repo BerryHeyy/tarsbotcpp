@@ -97,6 +97,54 @@ bool ProgramEnvironment::compile()
             if (instructions.size() != 1) { throw_instruction_exception(lines[i], instructions.size() - 1, 0); return false; }
             memory[compilerPointer++] = CPU::INS_PLA;
         }
+        else if (instructions[0] == "smh" || instructions[0] == "smd" || instructions[0] == "smc")
+        {
+            if (instructions[1].rfind("$", 0) == 0) // Zero Page or Absolute
+            {
+                if (tarsutils::get_bits(std::stoi(instructions[1].substr(1), nullptr, 16)) <= 8) // Zero Page
+                {
+                    if (instructions.size() != 2) { throw_instruction_exception(lines[i], instructions.size() - 1, 1); return false; }
+
+                    if (instructions[0] == "smh") memory[compilerPointer++] = CPU::INS_SMH_ZP;
+                    else if (instructions[0] == "smd") memory[compilerPointer++] = CPU::INS_SMD_ZP;
+                    else if (instructions[0] == "smc") memory[compilerPointer++] = CPU::INS_SMC_ZP;
+
+                    memory[compilerPointer++] = (Byte)std::stoi(instructions[1].substr(1), nullptr, 16);
+                }
+                else if (tarsutils::get_bits(std::stoi(instructions[1].substr(1), nullptr, 16)) <= 16) // Absolute
+                {
+                    if (instructions.size() != 2) { throw_instruction_exception(lines[i], instructions.size() - 1, 1); return false; }
+
+                    if (instructions[0] == "smh") memory[compilerPointer++] = CPU::INS_SMH_AS;
+                    else if (instructions[0] == "smd") memory[compilerPointer++] = CPU::INS_SMD_AS;
+                    else if (instructions[0] == "smc") memory[compilerPointer++] = CPU::INS_SMC_AS;
+
+                    Word givenWord = std::stoi(instructions[1].substr(1), nullptr, 16);
+
+                    memory[compilerPointer++] = (Byte)(givenWord & 0x00FF);
+                    memory[compilerPointer++] = (Byte)(givenWord >> 8);
+                }
+            }
+            else if (instructions[1].rfind("#", 0) == 0) // Immediate
+            {
+                if (instructions.size() != 2) { throw_instruction_exception(lines[i], instructions.size() - 1, 1); return false; }
+
+                if (instructions[0] == "smh") memory[compilerPointer++] = CPU::INS_SMH_IM;
+                else if (instructions[0] == "smd") memory[compilerPointer++] = CPU::INS_SMD_IM;
+                else if (instructions[0] == "smc") memory[compilerPointer++] = CPU::INS_SMC_IM;
+
+                memory[compilerPointer++] = std::stoi(instructions[1].substr(1), nullptr, 16); //TODO: Not checking for overflow, fix if this breaks it lol
+
+            }
+            else if (instructions[1].rfind("A", 0) == 0) // Accumulator
+            {
+                if (instructions.size() != 2) { throw_instruction_exception(lines[i], instructions.size() - 1, 1); return false; }
+
+                if (instructions[0] == "smh") memory[compilerPointer++] = CPU::INS_SMH_AC;
+                else if (instructions[0] == "smd") memory[compilerPointer++] = CPU::INS_SMD_AC;
+                else if (instructions[0] == "smc") memory[compilerPointer++] = CPU::INS_SMC_AC;
+            }
+        }
         else // Non supported instruction TODO: add support for labels
         {
             client->sendMessage(originalMessage.channelID, "Exception while compiling. At line: `" + lines[i] + "`. OPCODEException: Provided instruction (`" + instructions[0] + "`) not recognised.");
@@ -138,6 +186,114 @@ bool ProgramEnvironment::run()
         case CPU::INS_PLA:
         {
             processor.A = processor.pull_stack(memory);
+        }break;
+        case CPU::INS_SMH_IM:
+        {
+            std::stringstream ss;
+
+            ss << std::hex << std::setw(2) << std::setfill('0') << (int) processor.read_byte(memory);
+
+            client->sendMessage(originalMessage.channelID, ss.str());
+        }break;
+        case CPU::INS_SMH_AS:
+        {
+            Word value = processor.read_byte(memory) | (processor.read_byte(memory) << 8);
+
+            std::stringstream ss;
+
+            ss << std::hex << std::setw(2) << std::setfill('0') << (int) value;
+
+            client->sendMessage(originalMessage.channelID, ss.str());
+        }break;
+        case CPU::INS_SMH_ZP:
+        {
+            std::stringstream ss;
+
+            ss << std::hex << std::setw(2) << std::setfill('0') << (int)memory[processor.read_byte(memory)];
+
+            client->sendMessage(originalMessage.channelID, ss.str());
+        }break;
+        case CPU::INS_SMH_AC:
+        {
+            std::stringstream ss;
+
+            ss << std::hex << std::setw(2) << std::setfill('0') << (int)processor.A;
+
+            client->sendMessage(originalMessage.channelID, ss.str());
+        }break;
+        case CPU::INS_SMD_IM:
+        {
+            std::stringstream ss;
+
+            ss << (int)processor.read_byte(memory);
+
+            client->sendMessage(originalMessage.channelID, ss.str());
+        }break;
+        case CPU::INS_SMD_AS:
+        {
+            Word value = processor.read_byte(memory) | (processor.read_byte(memory) << 8);
+
+            std::stringstream ss;
+
+            ss << (int)value;
+
+            client->sendMessage(originalMessage.channelID, ss.str());
+        }break;
+        case CPU::INS_SMD_ZP:
+        {
+            std::stringstream ss;
+
+            ss << (int)memory[processor.read_byte(memory)];
+
+            client->sendMessage(originalMessage.channelID, ss.str());
+        }break;
+        case CPU::INS_SMD_AC:
+        {
+            std::stringstream ss;
+
+            ss << (int)processor.A;
+
+            client->sendMessage(originalMessage.channelID, ss.str());
+        }break;
+        case CPU::INS_SMC_IM:
+        {
+            std::stringstream ss;
+
+            ss << processor.read_byte(memory);
+
+            client->sendMessage(originalMessage.channelID, ss.str());
+        }break;
+        case CPU::INS_SMC_AS:
+        {
+            //Word value = processor.read_byte(memory) | (processor.read_byte(memory) << 8);
+
+            std::stringstream ss;
+
+            Byte a = processor.read_byte(memory);
+
+            const char userSymbol[] = { processor.read_byte(memory), a, '\x00' };
+
+            ss << userSymbol;
+
+            client->sendMessage(originalMessage.channelID, ss.str());
+
+        }break;
+        case CPU::INS_SMC_ZP:
+        {
+            std::stringstream ss;
+
+            ss << memory[processor.read_byte(memory)];
+
+            client->sendMessage(originalMessage.channelID, ss.str());
+
+        }break;
+        case CPU::INS_SMC_AC:
+        {
+            std::stringstream ss;
+
+            ss << processor.A;
+
+            client->sendMessage(originalMessage.channelID, ss.str());
         }break;
         case 0x00:
         {

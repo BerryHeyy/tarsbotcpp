@@ -6,8 +6,8 @@
 #include "bot_client.h"
 #include "util.h"
 
-using Byte = unsigned char;
-using Word = unsigned short;
+using Byte = uint8_t; 
+using Word = uint16_t;
 
 class BotClient;
 
@@ -75,10 +75,16 @@ public:
         INS_BUP_ST = 0x2F,
         INS_SMH_IM = 0x3F,
         INS_SMH_ZP = 0x4F,
-        INS_SMD_IM = 0x5F,
-        INS_SMD_ZP = 0x6F,
-        INS_SMC_IM = 0x7F,
-        INS_SMC_ZP = 0x8F;
+        INS_SMH_AS = 0x5F,
+        INS_SMH_AC = 0x6F,
+        INS_SMD_ZP = 0x7F,
+        INS_SMD_AS = 0x8F,
+        INS_SMD_IM = 0x9F,
+        INS_SMD_AC = 0xAF,
+        INS_SMC_ZP = 0xBF,
+        INS_SMC_AS = 0xCF,
+        INS_SMC_IM = 0xDF,
+        INS_SMC_AC = 0xEF;
 
     CPU()
     {
