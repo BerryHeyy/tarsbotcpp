@@ -17,9 +17,12 @@ ProgramEnvironment::~ProgramEnvironment()
 
 }
 
-
 bool ProgramEnvironment::compile()
 {
+    std::map<std::string, Word> labels;
+    std::map<std::string, Word> labelReferences;
+
+
     Word compilerPointer = 0x200;
         
     std::vector<std::string> lines;
@@ -50,6 +53,8 @@ bool ProgramEnvironment::compile()
                 instructions.push_back(intermediate);
             }
         }
+
+        if (instructions.empty()) continue;
 
         // I hate this
         if (instructions[0] == "lda")
@@ -145,10 +150,63 @@ bool ProgramEnvironment::compile()
                 else if (instructions[0] == "smc") memory[compilerPointer++] = CPU::INS_SMC_AC;
             }
         }
+        else if (instructions[0] == "jmp")
+        {
+            if (instructions[1].rfind("$", 0) == 0) // Absolute
+            {
+                if (tarsutils::get_bits(std::stoi(instructions[1].substr(1), nullptr, 16)) <= 16) // Less than 16 bits
+                {
+                    if (instructions.size() != 2) { throw_instruction_exception(lines[i], instructions.size() - 1, 1); return false; }
+
+                    Word givenWord = std::stoi(instructions[1].substr(1), nullptr, 16);
+                    
+                    memory[compilerPointer++] = CPU::INS_JMP_AS;
+
+                    memory[compilerPointer++] = (Byte)(givenWord & 0x00FF);
+                    memory[compilerPointer++] = (Byte)(givenWord >> 8);
+                }
+            }
+            else // Label
+            {
+                memory[compilerPointer++] = CPU::INS_JMP_AS;
+
+                labelReferences[instructions[1]] = compilerPointer;
+                compilerPointer += 2;
+            }                
+        }
         else // Non supported instruction TODO: add support for labels
         {
-            client->sendMessage(originalMessage.channelID, "Exception while compiling. At line: `" + lines[i] + "`. OPCODEException: Provided instruction (`" + instructions[0] + "`) not recognised.");
+            if (std::count(lines[i].begin(), lines[i].end(), ' ') == 0)
+                if (lines[i].rfind(':') == lines[i].length() - 1) // Label
+                {
+                    if (labels.count(lines[i].substr(0, lines[i].length() - 1)) == 0)
+                    {
+                        labels[lines[i].substr(0, lines[i].length() - 1)] = compilerPointer;
+
+                    }
+                    else { throw_label_already_defined_exception(lines[i], lines[i].substr(0, lines[i].length() - 1), labels[lines[i].substr(0, lines[i].length() - 1)]); return false; }
+                }
+                else
+                {
+                    client->sendMessage(originalMessage.channelID, "Exception while compiling. At line: `" + lines[i] + "`. OPCODEException: Provided instruction (`" + instructions[0] + "`) not recognised.");
+                }
         }
+    }
+
+    // Link labels
+    for (auto const& x : labelReferences)
+    {
+        std::cout << x.first  // string (key)
+            << ':'
+            << x.second // string's value 
+            << std::endl;
+
+        if (labels.count(x.first) > 0) // Label exists
+        {
+            memory[x.second] = (Byte)(labels[x.first] & 0x00FF);
+            memory[x.second + 1] = (Byte)(labels[x.first] >> 8);
+        }
+        else { throw_label_not_found_exception(x.second, x.first); return false; }
     }
 
     if (dumpMemory) dump_memory("Pre-execution State of Memory:");
@@ -295,6 +353,10 @@ bool ProgramEnvironment::run()
 
             client->sendMessage(originalMessage.channelID, ss.str());
         }break;
+        case CPU::INS_JMP_AS:
+        {
+            processor.PC = processor.read_byte(memory) | (processor.read_byte(memory) << 8);
+        }break;
         case 0x00:
         {
             continue;
@@ -364,6 +426,22 @@ void ProgramEnvironment::throw_hex_string_format_exception(std::string line, std
 {
     std::stringstream ss;
     ss << "Exception while compiling code. At line: `" << line << "`. HexStringFormatException: Provided (`" << provided << "`) hex number is not a valid hex number.";
+
+    client->sendMessage(originalMessage.channelID, ss.str());
+}
+
+void ProgramEnvironment::throw_label_already_defined_exception(std::string line, std::string label, Word address)
+{
+    std::stringstream ss;
+    ss << "Exception while compiling code. At line: `" << line << "`. LabelAlreadyProvidedException: Provided label (`" << label << "`) is already defined to point at 0x" << std::hex << std::setw(4) << std::setfill('0') << address << ".";
+
+    client->sendMessage(originalMessage.channelID, ss.str());
+}
+
+void ProgramEnvironment::throw_label_not_found_exception(Word address, std::string label)
+{
+    std::stringstream ss;
+    ss << "Exception while compiling code. At address: `" << std::hex << std::setw(4) << std::setfill('0') << address << "`. LabelNotFoundException: Provided label (`" << label << "`) has not been defined.";
 
     client->sendMessage(originalMessage.channelID, ss.str());
 }

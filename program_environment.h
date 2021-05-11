@@ -2,6 +2,8 @@
 
 #include <iostream>
 #include <stdexcept>
+#include <algorithm>
+#include <map>
 #include "sleepy_discord/sleepy_discord.h"
 #include "bot_client.h"
 #include "util.h"
@@ -70,6 +72,8 @@ public:
         INS_PHA = 0x48,
         // PLA
         INS_PLA = 0x68,
+        // JMP
+        INS_JMP_AS = 0x4C,
         // Custom Op Codes 0x*F, 0x*B, 0x*7, 0x*3
         INS_PUS_ST = 0x1F,
         INS_BUP_ST = 0x2F,
@@ -151,5 +155,6 @@ private:
     void throw_possible_overflow_exception(std::string line, int provided, int expected);
     void throw_instruction_exception(std::string line, int provided, int expected);
     void throw_hex_string_format_exception(std::string line, std::string provided);
-
+    void throw_label_already_defined_exception(std::string line, std::string label, Word address);
+    void throw_label_not_found_exception(Word address, std::string label);
 };
