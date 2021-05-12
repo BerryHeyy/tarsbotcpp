@@ -44,51 +44,68 @@ struct MEM
     }
 };
 
+struct Register
+{
+    Word value;
+
+    Register()
+    {
+        value = 0;
+    }
+
+    Byte lower()
+    {
+        return (Byte)value & 0x00FF;
+    }
+
+    Byte upper()
+    {
+        return (Byte)value >> 8;
+    }
+
+    void set_lower(Byte lower)
+    {
+        value = (value & 0xFF00) | lower;
+    }
+
+    void set_upper(Byte upper)
+    {
+        value = (value & 0x00FF) | (upper << 8);
+    }
+};
+
 struct CPU
 {
 public:
 
     Word PC; // Program Counter
-    Word SP; // Stack Pointer
 
-    Byte A, X, Y; // Registers
+    Register AX, BX, CX, DX, SI, DI, SP,
+        BP;
 
-    Byte C : 1, // Status Flags
-        Z : 1,
-        I : 1,
-        D : 1,
-        B : 1,
-        V : 1,
-        N : 1;
+    uint64_t R8, R9, R10, R11, R12, R13,
+        R14, R15;
 
 public:
 
     static constexpr Byte // Op Codes
-        // LDA
-        INS_LDA_IM = 0xA9,
-        INS_LDA_ZP = 0xA5,
-        INS_LDA_AS = 0xAD,
-        // PHA
-        INS_PHA = 0x48,
-        // PLA
-        INS_PLA = 0x68,
-        // JMP
-        INS_JMP_AS = 0x4C,
-        // Custom Op Codes 0x*F, 0x*B, 0x*7, 0x*3
-        INS_PUS_ST = 0x1F,
-        INS_BUP_ST = 0x2F,
-        INS_SMH_IM = 0x3F,
-        INS_SMH_ZP = 0x4F,
-        INS_SMH_AS = 0x5F,
-        INS_SMH_AC = 0x6F,
-        INS_SMD_ZP = 0x7F,
-        INS_SMD_AS = 0x8F,
-        INS_SMD_IM = 0x9F,
-        INS_SMD_AC = 0xAF,
-        INS_SMC_ZP = 0xBF,
-        INS_SMC_AS = 0xCF,
-        INS_SMC_IM = 0xDF,
-        INS_SMC_AC = 0xEF;
+        INS_MOV_AS = 0x01,
+        INS_MOV_IM = 0x02,
+        INS_CMP_IM = 0x03,
+        INS_JNE = 0x04,
+        INS_PUSHA = 0x05,
+        INS_POPA = 0x06,
+        INS_JMP = 0x07,
+        INS_CALL = 0x08,
+        INS_RET = 0x09,
+        INS_PRTC = 0x0A,
+        INS_ADD = 0x0B,
+        INS_MOV_RV = 0x0C,
+        // Pseudo Ops
+        INS_DB = 0xF0;
+
+    static std::map<std::string, Byte> registerEncoding;
+    static constexpr Byte POINTER_INDICATOR = 0xF8;
 
     CPU()
     {
@@ -98,9 +115,8 @@ public:
     void reset()
     {
         PC = 0x0200;
-        SP = 0x0100;
-        C = Z = I = D = B = V = N = 0;
-        A = X = Y = 0;
+        SP.value = 0x0100;
+        R8 = R9 = R10 = R11 = R12 = R13 = R14 = R15 = 0;
     }
 
     Byte read_byte(MEM &memory)
@@ -115,15 +131,15 @@ public:
 
     Byte pull_stack(MEM& memory)
     {
-        SP--;
-        Byte toReturn = memory[SP];
-        memory[SP] = 0x00;
+        SP.value--;
+        Byte toReturn = memory[SP.value];
+        memory[SP.value] = 0x00;
         return toReturn;
     }
 
     void push_stack(Byte toWrite, MEM& memory)
     {
-        memory[SP++] = toWrite;
+        memory[SP.value++] = toWrite;
     }
 };
 

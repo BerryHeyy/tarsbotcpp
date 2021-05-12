@@ -1,5 +1,18 @@
 #include "program_environment.h"
 
+std::map<std::string, Byte> CPU::registerEncoding 
+{
+    { "al", 0x00 }, { "bl", 0x01 }, { "cl", 0x02 }, { "dl", 0x03 }, { "ah", 0x04 }, { "bh", 0x05 },
+    { "ch", 0x06 }, { "dh", 0x07 }, // 8-bit registers
+
+    { "ax", 0x08 }, { "bx", 0x09 }, { "cx", 0x0A }, { "dx", 0x0B }, { "si", 0x0C }, { "di", 0x0D },
+    { "sp", 0x0E }, { "bp", 0x0F }, // 16-bit registers
+
+    { "r8", 0x10 }, { "r9", 0x11 }, { "r10", 0x12 }, { "r11", 0x13 }, { "r12", 0x14 }, 
+    { "r13", 0x15 }, { "r14", 0x16 }, { "r15", 0x17 } // 64-bit registers
+}; // I check for sizes with these assigned encoding values in the assembler. 
+   // THIS IS VERY ERROR PRONE IF I CHANGE THIS MAP IN ANY WAY.
+
 ProgramEnvironment::ProgramEnvironment(SleepyDiscord::Message message, std::string programCode, bool dumpMemory, bool dumpFull, BotClient *client)
 {
     this->originalMessage = message;
@@ -8,8 +21,6 @@ ProgramEnvironment::ProgramEnvironment(SleepyDiscord::Message message, std::stri
     this->dumpFull = dumpFull;
 
     this->client = client;
-
-
 }
 
 ProgramEnvironment::~ProgramEnvironment()
@@ -19,12 +30,12 @@ ProgramEnvironment::~ProgramEnvironment()
 
 bool ProgramEnvironment::compile()
 {
+
     std::map<std::string, Word> labels;
     std::map<std::string, Word> labelReferences;
 
-
     Word compilerPointer = 0x200;
-        
+
     std::vector<std::string> lines;
 
     { // I hate this so much
@@ -41,7 +52,7 @@ bool ProgramEnvironment::compile()
     for (int i = 0; i < lines.size(); i++)
     {
 
-        std::vector<std::string> instructions;
+        std::vector<std::string> tokens;
 
         { // I hate this so much x2
             std::stringstream stream(lines[i]);
@@ -50,319 +61,103 @@ bool ProgramEnvironment::compile()
 
             while (std::getline(stream, intermediate, ' '))
             {
-                instructions.push_back(intermediate);
+                if (intermediate.empty()) continue; 
+                if (intermediate.rfind(',') == intermediate.length() - 1) intermediate = intermediate.substr(0, intermediate.length() - 1);
+                tokens.push_back(intermediate);
             }
         }
 
-        if (instructions.empty()) continue;
+        if (tokens.empty()) continue; // Empty line
 
-        // I hate this
-        if (instructions[0] == "lda")
+        if (tokens[0] == "mov")
         {
-            if (instructions[1].rfind("$", 0) == 0) // Zero Page or Absolute
+            if (CPU::registerEncoding.count(tokens[1]) > 0) // Destination exists
             {
-                if (tarsutils::get_bits(std::stoi(instructions[1].substr(1), nullptr, 16)) <= 8) // Zero Page
+                if (CPU::registerEncoding.count(tokens[2]) > 0) // Value is another register
                 {
-                    if (instructions.size() != 2) { throw_instruction_exception(lines[i], instructions.size() - 1, 1); return false; }
-                    memory[compilerPointer++] = CPU::INS_LDA_ZP;
-                    
-                    memory[compilerPointer++] = (Byte) std::stoi(instructions[1].substr(1), nullptr, 16);
+                    //if (tarsutils::get_register_size(CPU::registerEncoding[tokens[1]]) >=
+                    //    tarsutils::get_register_size(CPU::registerEncoding[tokens[2]]))
+                    //else // registers different sizes
+
+                    memory[compilerPointer++] = CPU::INS_MOV_RV;
+                    memory[compilerPointer++] = CPU::registerEncoding[tokens[1]];
+                    memory[compilerPointer++] = CPU::registerEncoding[tokens[2]];
                 }
-                else if (tarsutils::get_bits(std::stoi(instructions[1].substr(1), nullptr, 16)) <= 16) // Absolute
+                else if ((tokens[2].find('[') == 0) && (tokens[2].rfind(']') == tokens[2].length() - 1)) // Value is a pointer register
                 {
-                    if (instructions.size() != 2) { throw_instruction_exception(lines[i], instructions.size() - 1, 1); return false; }
-                    memory[compilerPointer++] = CPU::INS_LDA_AS;
-
-                    Word givenWord = std::stoi(instructions[1].substr(1), nullptr, 16);
-
-                    memory[compilerPointer++] = (Byte)(givenWord & 0x00FF);
-                    memory[compilerPointer++] = (Byte)(givenWord >> 8);
+                    memory[compilerPointer++] = CPU::INS_MOV_RV;
+                    memory[compilerPointer++] = CPU::registerEncoding[tokens[1]];
+                    memory[compilerPointer++] = CPU::POINTER_INDICATOR;
+                    memory[compilerPointer++] = CPU::registerEncoding[tokens[2].substr(1, tokens[2].length() - 1)];
                 }
-                else { throw_possible_overflow_exception(lines[i], tarsutils::get_bits(std::stoi(instructions[1].substr(1), nullptr, 16)), 16); return false; }
-            }
-            else if (instructions[1].rfind("#", 0) == 0) // Immediate
-            {
-                if (instructions.size() != 2) { throw_instruction_exception(lines[i], instructions.size() - 1, 1); return false; }
-                memory[compilerPointer++] = CPU::INS_LDA_IM;
-
-                if (tarsutils::get_bits(std::stoi(instructions[1].substr(1), nullptr, 16)) <= 8)
+                else if (tarsutils::valid_hex_string(tokens[2])) // Value is a number
                 {
-                    memory[compilerPointer++] = std::stoi(instructions[1].substr(1), nullptr, 16);
-                }
-                else { throw_possible_overflow_exception(lines[i], tarsutils::get_bits(std::stoi(instructions[1].substr(1), nullptr, 16)), 8); return false; }
-            }
-        }
-        else if (instructions[0] == "pha")
-        {
-            if (instructions.size() != 1) { throw_instruction_exception(lines[i], instructions.size() - 1, 0); return false;  }
-            memory[compilerPointer++] = CPU::INS_PHA;
-        }
-        else if (instructions[0] == "pla")
-        {
-            if (instructions.size() != 1) { throw_instruction_exception(lines[i], instructions.size() - 1, 0); return false; }
-            memory[compilerPointer++] = CPU::INS_PLA;
-        }
-        else if (instructions[0] == "smh" || instructions[0] == "smd" || instructions[0] == "smc")
-        {
-            if (instructions[1].rfind("$", 0) == 0) // Zero Page or Absolute
-            {
-                if (tarsutils::get_bits(std::stoi(instructions[1].substr(1), nullptr, 16)) <= 8) // Zero Page
-                {
-                    if (instructions.size() != 2) { throw_instruction_exception(lines[i], instructions.size() - 1, 1); return false; }
-
-                    if (instructions[0] == "smh") memory[compilerPointer++] = CPU::INS_SMH_ZP;
-                    else if (instructions[0] == "smd") memory[compilerPointer++] = CPU::INS_SMD_ZP;
-                    else if (instructions[0] == "smc") memory[compilerPointer++] = CPU::INS_SMC_ZP;
-
-                    memory[compilerPointer++] = (Byte)std::stoi(instructions[1].substr(1), nullptr, 16);
-                }
-                else if (tarsutils::get_bits(std::stoi(instructions[1].substr(1), nullptr, 16)) <= 16) // Absolute
-                {
-                    if (instructions.size() != 2) { throw_instruction_exception(lines[i], instructions.size() - 1, 1); return false; }
-
-                    if (instructions[0] == "smh") memory[compilerPointer++] = CPU::INS_SMH_AS;
-                    else if (instructions[0] == "smd") memory[compilerPointer++] = CPU::INS_SMD_AS;
-                    else if (instructions[0] == "smc") memory[compilerPointer++] = CPU::INS_SMC_AS;
-
-                    Word givenWord = std::stoi(instructions[1].substr(1), nullptr, 16);
-
-                    memory[compilerPointer++] = (Byte)(givenWord & 0x00FF);
-                    memory[compilerPointer++] = (Byte)(givenWord >> 8);
-                }
-            }
-            else if (instructions[1].rfind("#", 0) == 0) // Immediate
-            {
-                if (instructions.size() != 2) { throw_instruction_exception(lines[i], instructions.size() - 1, 1); return false; }
-
-                if (instructions[0] == "smh") memory[compilerPointer++] = CPU::INS_SMH_IM;
-                else if (instructions[0] == "smd") memory[compilerPointer++] = CPU::INS_SMD_IM;
-                else if (instructions[0] == "smc") memory[compilerPointer++] = CPU::INS_SMC_IM;
-
-                memory[compilerPointer++] = std::stoi(instructions[1].substr(1), nullptr, 16); //TODO: Not checking for overflow, fix if this breaks it lol
-
-            }
-            else if (instructions[1].rfind("A", 0) == 0) // Accumulator
-            {
-                if (instructions.size() != 2) { throw_instruction_exception(lines[i], instructions.size() - 1, 1); return false; }
-
-                if (instructions[0] == "smh") memory[compilerPointer++] = CPU::INS_SMH_AC;
-                else if (instructions[0] == "smd") memory[compilerPointer++] = CPU::INS_SMD_AC;
-                else if (instructions[0] == "smc") memory[compilerPointer++] = CPU::INS_SMC_AC;
-            }
-        }
-        else if (instructions[0] == "jmp")
-        {
-            if (instructions[1].rfind("$", 0) == 0) // Absolute
-            {
-                if (tarsutils::get_bits(std::stoi(instructions[1].substr(1), nullptr, 16)) <= 16) // Less than 16 bits
-                {
-                    if (instructions.size() != 2) { throw_instruction_exception(lines[i], instructions.size() - 1, 1); return false; }
-
-                    Word givenWord = std::stoi(instructions[1].substr(1), nullptr, 16);
-                    
-                    memory[compilerPointer++] = CPU::INS_JMP_AS;
-
-                    memory[compilerPointer++] = (Byte)(givenWord & 0x00FF);
-                    memory[compilerPointer++] = (Byte)(givenWord >> 8);
-                }
-            }
-            else // Label
-            {
-                memory[compilerPointer++] = CPU::INS_JMP_AS;
-
-                labelReferences[instructions[1]] = compilerPointer;
-                compilerPointer += 2;
-            }                
-        }
-        else // Non supported instruction TODO: add support for labels
-        {
-            if (std::count(lines[i].begin(), lines[i].end(), ' ') == 0)
-                if (lines[i].rfind(':') == lines[i].length() - 1) // Label
-                {
-                    if (labels.count(lines[i].substr(0, lines[i].length() - 1)) == 0)
+                    int regBits = tarsutils::get_register_size(CPU::registerEncoding[tokens[1]]);
+                    int valueBits = tarsutils::get_bits(std::stoull(tokens[2], nullptr, 16));
+                    if (regBits >= valueBits)
                     {
-                        labels[lines[i].substr(0, lines[i].length() - 1)] = compilerPointer;
+                        memory[compilerPointer++] = CPU::INS_MOV_IM;
+                        memory[compilerPointer++] = CPU::registerEncoding[tokens[1]];
 
+                        std::vector<Byte> bytes = tarsutils::int_to_little_endian_byte_array(std::stoull(tokens[2], nullptr, 16));
+
+                        for (int i = 0; i < bytes.size(); i++)
+                        {
+                            memory[compilerPointer++] = bytes[i];
+                        }
+
+                        int remainingBytes = regBits / 8 - bytes.size();
+
+                        if (remainingBytes / 8 != 0)
+                        {
+                            while (remainingBytes > 0)
+                            {
+                                memory[compilerPointer++] = 0x00;
+                                remainingBytes--;
+                            }
+                        }
                     }
-                    else { throw_label_already_defined_exception(lines[i], lines[i].substr(0, lines[i].length() - 1), labels[lines[i].substr(0, lines[i].length() - 1)]); return false; }
+                    else // Throw overflow
+                    {
+                        throw_possible_overflow_exception(lines[i], tarsutils::get_bits(std::stoull(tokens[2], nullptr, 16)), tarsutils::get_register_size(CPU::registerEncoding[tokens[1]]));
+                        return false;
+                    }
                 }
-                else
+                else if (labels.count(tokens[2]) > 1) // Value is a label
                 {
-                    client->sendMessage(originalMessage.channelID, "Exception while compiling. At line: `" + lines[i] + "`. OPCODEException: Provided instruction (`" + instructions[0] + "`) not recognised.");
+                    
                 }
+                else // Unrecognised value, throw error
+                {
+                    std::stringstream ss;
+                    ss << "Exception while compiling code. At line: `" << lines[i] << "`. ArgumentException: Provided argument `" << tokens[2] << "` is an invalid argument.";
+
+                    client->sendMessage(originalMessage.channelID, ss.str());
+                    return false;
+                }
+            }
+            else // Destination does not exist
+            {
+                std::stringstream ss;
+                ss << "Exception while compiling code. At line: `" << lines[i] << "`. ArgumentException: Provided argument `" << tokens[1] << "` is an invalid argument.";
+
+                client->sendMessage(originalMessage.channelID, ss.str());
+                return false;
+            }
         }
-    }
-
-    // Link labels
-    for (auto const& x : labelReferences)
-    {
-        std::cout << x.first  // string (key)
-            << ':'
-            << x.second // string's value 
-            << std::endl;
-
-        if (labels.count(x.first) > 0) // Label exists
+        else // Check for label
         {
-            memory[x.second] = (Byte)(labels[x.first] & 0x00FF);
-            memory[x.second + 1] = (Byte)(labels[x.first] >> 8);
+
         }
-        else { throw_label_not_found_exception(x.second, x.first); return false; }
     }
 
     if (dumpMemory) dump_memory("Pre-execution State of Memory:");
-
+    
     return true;
 }
 
 bool ProgramEnvironment::run()
 {
-
-    while (processor.PC < MEM::MAX_MEM)
-    {
-        Byte instruction = processor.read_byte(memory);
-
-        switch (instruction)
-        {
-        case CPU::INS_LDA_IM:
-        {
-            processor.A = processor.read_byte(memory);
-        }break;
-        case CPU::INS_LDA_ZP:
-        {
-            processor.A = memory[processor.read_byte(memory)];
-        }break;
-        case CPU::INS_LDA_AS:
-        {
-            Word value = processor.read_byte(memory) | (processor.read_byte(memory) << 8);
-            std::cout << value << std::endl;
-            processor.A = memory[value];
-        }break;
-        case CPU::INS_PHA:
-        {
-            processor.push_stack(processor.A, memory);
-        }break;
-        case CPU::INS_PLA:
-        {
-            processor.A = processor.pull_stack(memory);
-        }break;
-        case CPU::INS_SMH_IM:
-        {
-            std::stringstream ss;
-
-            ss << std::hex << std::setw(2) << std::setfill('0') << (int) processor.read_byte(memory);
-
-            client->sendMessage(originalMessage.channelID, ss.str());
-        }break;
-        case CPU::INS_SMH_AS:
-        {
-            Word value = processor.read_byte(memory) | (processor.read_byte(memory) << 8);
-
-            std::stringstream ss;
-
-            ss << std::hex << std::setw(2) << std::setfill('0') << (int) value;
-
-            client->sendMessage(originalMessage.channelID, ss.str());
-        }break;
-        case CPU::INS_SMH_ZP:
-        {
-            std::stringstream ss;
-
-            ss << std::hex << std::setw(2) << std::setfill('0') << (int)memory[processor.read_byte(memory)];
-
-            client->sendMessage(originalMessage.channelID, ss.str());
-        }break;
-        case CPU::INS_SMH_AC:
-        {
-            std::stringstream ss;
-
-            ss << std::hex << std::setw(2) << std::setfill('0') << (int)processor.A;
-
-            client->sendMessage(originalMessage.channelID, ss.str());
-        }break;
-        case CPU::INS_SMD_IM:
-        {
-            std::stringstream ss;
-
-            ss << (int)processor.read_byte(memory);
-
-            client->sendMessage(originalMessage.channelID, ss.str());
-        }break;
-        case CPU::INS_SMD_AS:
-        {
-            Word value = processor.read_byte(memory) | (processor.read_byte(memory) << 8);
-
-            std::stringstream ss;
-
-            ss << (int)value;
-
-            client->sendMessage(originalMessage.channelID, ss.str());
-        }break;
-        case CPU::INS_SMD_ZP:
-        {
-            std::stringstream ss;
-
-            ss << (int)memory[processor.read_byte(memory)];
-
-            client->sendMessage(originalMessage.channelID, ss.str());
-        }break;
-        case CPU::INS_SMD_AC:
-        {
-            std::stringstream ss;
-
-            ss << (int)processor.A;
-
-            client->sendMessage(originalMessage.channelID, ss.str());
-        }break;
-        case CPU::INS_SMC_IM:
-        {
-            std::stringstream ss;
-
-            ss << processor.read_byte(memory);
-
-            client->sendMessage(originalMessage.channelID, ss.str());
-        }break;
-        case CPU::INS_SMC_AS:
-        {
-            //Word value = processor.read_byte(memory) | (processor.read_byte(memory) << 8);
-
-            std::stringstream ss;
-
-            Byte a = processor.read_byte(memory);
-
-            const char userSymbol[] = { processor.read_byte(memory), a, '\x00' };
-
-            ss << userSymbol;
-
-            client->sendMessage(originalMessage.channelID, ss.str());
-
-        }break;
-        case CPU::INS_SMC_ZP:
-        {
-            std::stringstream ss;
-
-            ss << memory[processor.read_byte(memory)];
-
-            client->sendMessage(originalMessage.channelID, ss.str());
-
-        }break;
-        case CPU::INS_SMC_AC:
-        {
-            std::stringstream ss;
-
-            ss << processor.A;
-
-            client->sendMessage(originalMessage.channelID, ss.str());
-        }break;
-        case CPU::INS_JMP_AS:
-        {
-            processor.PC = processor.read_byte(memory) | (processor.read_byte(memory) << 8);
-        }break;
-        case 0x00:
-        {
-            continue;
-        }
-        }
-    }
 
     if (dumpMemory) dump_memory("Post-execution State of Memory:");
 
@@ -380,18 +175,24 @@ void ProgramEnvironment::dump_memory(std::string messageContent)
     ss << std::hex;
 
     // Processor State
-    ss << "Processor State:\n    Registries:   A = " << std::setw(2) << std::setfill('0') << (int)processor.A << " | " <<
-        "X = " << std::setw(2) << std::setfill('0') << (int)processor.X << " | " <<
-        "Y = " << std::setw(2) << std::setfill('0') << (int)processor.Y <<
-        "\n    Status Flags: C = " << std::setw(1) << (int)processor.C << " | " <<
-        "Z = " << std::setw(1) << (int)processor.Z << " | " <<
-        "I = " << std::setw(1) << (int)processor.I << "\n" <<
-        "                  D = " << std::setw(1) << (int)processor.D << " | " <<
-        "B = " << std::setw(1) << (int)processor.B << " | " <<
-        "V = " << std::setw(1) << (int)processor.V << "\n" <<
-        "                  N = " << std::setw(1) << (int)processor.N << "\n\n";
+    ss << "Processor State:\n    16-bit Registers:   AX = " << std::setw(4) << std::setfill('0') << processor.AX.value << " | " <<
+        "BX = " << std::setw(4) << std::setfill('0') << processor.BX.value << " | " <<
+        "CX = " << std::setw(4) << std::setfill('0') << processor.CX.value <<
+        "\n                        DX = " << std::setw(4) << processor.DX.value << " | " <<
+        "SI = " << std::setw(4) << std::setfill('0') << processor.SI.value << " | " <<
+        "DI = " << std::setw(4) << std::setfill('0') << processor.DI.value <<
+        "\n                        SP = " << std::setw(4) << std::setfill('0') << processor.SP.value << " | " <<
+        "BP = " << std::setw(4) << std::setfill('0') << processor.BP.value << " | " <<
+        "\n    64-bit Registers:   R8  = " << std::setw(16) << std::setfill('0') << processor.R8 << " | " <<
+        "R9  = " << std::setw(16) << std::setfill('0') << processor.R9 <<
+        "\n                        R10 = " << std::setw(16) << std::setfill('0') << processor.R10 << " | " <<
+        "R11 = " << std::setw(16) << std::setfill('0') << processor.R11 <<
+        "\n                        R12 = " << std::setw(16) << std::setfill('0') << processor.R12 << " | " <<
+        "R13 = " << std::setw(16) << std::setfill('0') << processor.R13 <<
+        "\n                        R14 = " << std::setw(16) << std::setfill('0') << processor.R14 << " | " <<
+        "R15 = " << std::setw(16) << std::setfill('0') << processor.R15 << "\n\n";
 
-    ss << "Offset    00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f\n\n";
+    ss << "Offset    00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f\n";
 
     for (int i = 0; i < MEM::MAX_MEM; i++)
     {
@@ -409,7 +210,7 @@ void ProgramEnvironment::dump_memory(std::string messageContent)
 void ProgramEnvironment::throw_possible_overflow_exception(std::string line, int provided, int expected)
 {
     std::stringstream ss;
-    ss << "Exception while compiling code. At line: `" << line << "`. PossibleOverflowException: Max: `" << expected << "`, provided: `" << provided << "`.";
+    ss << "Exception while compiling code. At line: `" << line << "`. PossibleOverflowException: Max: `" << expected << "` bits, provided: `" << provided << "` bits.";
 
     client->sendMessage(originalMessage.channelID, ss.str());
 }
