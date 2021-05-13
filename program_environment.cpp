@@ -89,10 +89,7 @@ ProgramEnvironment::ProgramEnvironment(SleepyDiscord::Message message, std::stri
     this->client = client;
 }
 
-ProgramEnvironment::~ProgramEnvironment()
-{
-
-}
+ProgramEnvironment::~ProgramEnvironment() {}
 
 bool ProgramEnvironment::compile()
 {
@@ -134,6 +131,8 @@ bool ProgramEnvironment::compile()
         }
 
         if (tokens.empty()) continue; // Empty line
+
+    begin_check:
 
         if (tokens[0] == "mov")
         {
@@ -189,17 +188,13 @@ bool ProgramEnvironment::compile()
                         return false;
                     }
                 }
-                else if (labels.count(tokens[2]) > 1) // Value is a label
+                else // Value is a label
                 {
-                    
-                }
-                else // Unrecognised value, throw error
-                {
-                    std::stringstream ss;
-                    ss << "Exception while compiling code. At line: `" << lines[i] << "`. ArgumentException: Provided argument `" << tokens[2] << "` is an invalid argument.";
+                    memory[compilerPointer++] = CPU::INS_MOV_AS;
+                    memory[compilerPointer++] = CPU::registerEncoding[tokens[1]];
 
-                    client->sendMessage(originalMessage.channelID, ss.str());
-                    return false;
+                    labelReferences[tokens[2]] = compilerPointer;
+                    compilerPointer += 2;
                 }
             }
             else // Destination does not exist
@@ -211,10 +206,75 @@ bool ProgramEnvironment::compile()
                 return false;
             }
         }
+        else if (tokens[0] == "db")
+        {
+            for (int j = 1; j < tokens.size(); j++) // Things to write
+            {
+                if (tokens[j].find('"') == 0 && tokens[j].rfind('"') == tokens[j].size() - 1) // String
+                {
+                    std::string insideString = tokens[j].substr(1, tokens[j].size() - 2);
+                    const char* charArray = insideString.c_str();
+
+                    for (int k = 0; k < tokens[j].length() - 2; k++)
+                    {
+                        memory[compilerPointer++] = charArray[k];
+                    }
+                }
+                else if (tarsutils::valid_hex_string(tokens[j])) // Byte literal
+                {
+                    if (tarsutils::get_bits(std::stoi(tokens[j], nullptr, 16)) <= 8)
+                    {
+                        memory[compilerPointer++] = std::stoi(tokens[j], nullptr, 16);
+                    }
+                    else { throw_possible_overflow_exception(lines[i], tarsutils::get_bits(std::stoi(tokens[j], nullptr, 16)), 8); return false; }
+                }
+            }
+        }
         else // Check for label
         {
+            if (tokens[0].rfind(':') == tokens[0].length() - 1) // First token is a label
+            {
+                if (tokens.size() == 1) // Line is only a token
+                {
+                    std::string labelName = tokens[0].substr(0, tokens[0].length() - 1);
 
+                    if (labels.count(labelName) == 0) // Label doesnt already exist
+                    {
+                        labels[labelName] = compilerPointer;
+                    }
+                    else { throw_label_already_defined_exception(lines[i], labelName, labels[labelName]); return false; }
+                }
+                else // Line is token + inline line
+                {
+                    std::string labelName = tokens[0].substr(0, tokens[0].length() - 1);
+
+                    if (labels.count(labelName) == 0) // Label doesnt already exist
+                    {
+                        labels[labelName] = compilerPointer;
+                    }
+                    else { throw_label_already_defined_exception(lines[i], labelName, labels[labelName]); return false; }
+
+                    tokens.erase(tokens.begin());
+
+                    goto begin_check;
+                }
+            }
+            else // Throw undefined operation exception
+            {
+
+            }
         }
+    }
+
+    // Link labels
+    for (auto const& x : labelReferences)
+    {
+        if (labels.count(x.first) > 0) // Label exists
+        {
+            memory[x.second] = (Byte)(labels[x.first] & 0x00FF);
+            memory[x.second + 1] = (Byte)(labels[x.first] >> 8);
+        }
+        else { throw_label_not_found_exception(x.second, x.first); return false; }
     }
 
     if (dumpMemory) dump_memory("Pre-execution State of Memory:");
@@ -236,7 +296,7 @@ bool ProgramEnvironment::run()
             Byte destinationEncoding = processor.read_byte(memory);
             Byte sourceEncoding = processor.read_byte(memory);
 
-            if (sourceEncoding == processor.POINTER_INDICATOR) // Value is address pointer
+            if (sourceEncoding == CPU::POINTER_INDICATOR) // Value is address pointer
             {
                 Byte registerWithPointer = processor.read_byte(memory);
 
@@ -261,6 +321,13 @@ bool ProgramEnvironment::run()
 
             uint64_t value;
             std::memcpy(&value, &bytes[0], tarsutils::get_register_size(destinationEncoding) / 8);
+
+            processor.set_register_value(destinationEncoding, value);
+        }break;
+        case CPU::INS_MOV_AS:
+        {
+            Byte destinationEncoding = processor.read_byte(memory);
+            Word value = processor.read_byte(memory) | (processor.read_byte(memory) << 8);
 
             processor.set_register_value(destinationEncoding, value);
         }break;

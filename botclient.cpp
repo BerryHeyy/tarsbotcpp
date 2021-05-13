@@ -15,13 +15,13 @@ void BotClient::onMessage(SleepyDiscord::Message message)
     {
         messageContent = messageContent.substr(6, messageContent.length() - 9);
 
-        bool dumpMemory = messageContent.rfind("--dumpMemory") != std::string::npos;
-        bool dumpFull = messageContent.rfind("--dumpMemoryFull") != std::string::npos;
+        /*bool dumpMemory = messageContent.rfind("--dumpMemory") != std::string::npos;
+        bool dumpFull = messageContent.rfind("--dumpMemoryFull") != std::string::npos;*/
 
-        if (messageContent.find("-") != std::string::npos)
-            messageContent = messageContent.substr(0, messageContent.find("-") - 1); // Get space too
+        //if (messageContent.find("-") != std::string::npos)
+        //    messageContent = messageContent.substr(0, messageContent.find("-") - 1); // Get space too
 
-        ProgramEnvironment environment(message, messageContent, dumpMemory, dumpFull, this);
+        ProgramEnvironment environment(message, messageContent, true, true, this);
 
         if (environment.compile()) environment.run();
     }
