@@ -111,7 +111,7 @@ bool ProgramEnvironment::compile()
             lines.push_back(intermediate);
         }
     }
-
+    
     for (int i = 0; i < lines.size(); i++)
     {
 
@@ -171,9 +171,9 @@ bool ProgramEnvironment::compile()
                             memory[compilerPointer++] = bytes[i];
                         }
 
-                        int remainingBytes = regBits / 8 - bytes.size();
-
-                        if (remainingBytes / 8 != 0)
+                        float remainingBytes = regBits / 8 - bytes.size();
+                        
+                        if (remainingBytes / 8.0f != 0.0f)
                         {
                             while (remainingBytes > 0)
                             {
@@ -229,6 +229,24 @@ bool ProgramEnvironment::compile()
                     else { throw_possible_overflow_exception(lines[i], tarsutils::get_bits(std::stoi(tokens[j], nullptr, 16)), 8); return false; }
                 }
             }
+        }
+        else if (tokens[0] == "call")
+        {
+            memory[compilerPointer++] = CPU::INS_CALL;
+
+            labelReferences[tokens[1]] = compilerPointer;
+            compilerPointer += 2;
+        }
+        else if (tokens[0] == "jmp")
+        {
+            memory[compilerPointer++] = CPU::INS_JMP;
+
+            labelReferences[tokens[1]] = compilerPointer;
+            compilerPointer += 2;
+        }
+        else if (tokens[0] == "ret")
+        {
+            memory[compilerPointer++] = CPU::INS_RET;
         }
         else // Check for label
         {
@@ -330,6 +348,20 @@ bool ProgramEnvironment::run()
             Word value = processor.read_byte(memory) | (processor.read_byte(memory) << 8);
 
             processor.set_register_value(destinationEncoding, value);
+        }break;
+        case CPU::INS_CALL:
+        {
+            Word address = processor.read_byte(memory) | (processor.read_byte(memory) << 8);
+            processor.DI.value = processor.PC;
+            processor.PC = address;
+        }break;
+        case CPU::INS_JMP:
+        {
+            processor.PC = processor.read_byte(memory) | (processor.read_byte(memory) << 8);
+        }break;
+        case CPU::INS_RET:
+        {
+            processor.PC = processor.DI.value;
         }break;
         case 0x00:
         {

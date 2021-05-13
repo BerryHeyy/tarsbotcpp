@@ -28,6 +28,7 @@ std::vector<Byte> tarsutils::int_to_little_endian_byte_array(uint64_t value)
     return bytes;
 }
 
+
 bool tarsutils::valid_hex_string(std::string hex)
 {
     return hex.compare(0, 2, "0x") == 0
