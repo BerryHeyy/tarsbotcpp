@@ -13,6 +13,72 @@ std::map<std::string, Byte> CPU::registerEncoding
 }; // I check for sizes with these assigned encoding values in the assembler. 
    // THIS IS VERY ERROR PRONE IF I CHANGE THIS MAP IN ANY WAY.
 
+uint64_t CPU::get_register_value(Byte encoding)
+{
+    switch (encoding)
+    {
+    case 0x00: return AX.lower();
+    case 0x01: return BX.lower();
+    case 0x02: return CX.lower();
+    case 0x03: return DX.lower();
+    case 0x04: return AX.upper();
+    case 0x05: return BX.upper();
+    case 0x06: return CX.upper();
+    case 0x07: return DX.upper();
+
+    case 0x08: return AX.value;
+    case 0x09: return BX.value;
+    case 0x0A: return CX.value;
+    case 0x0B: return DX.value;
+    case 0x0C: return SI.value;
+    case 0x0D: return DI.value;
+    case 0x0E: return SP.value;
+    case 0x0F: return BP.value;
+
+    case 0x10: return R8;
+    case 0x11: return R9;
+    case 0x12: return R10;
+    case 0x13: return R11;
+    case 0x14: return R12;
+    case 0x15: return R13;
+    case 0x16: return R14;
+    case 0x17: return R15;
+    }
+}
+
+void CPU::set_register_value(Byte encoding, uint64_t value)
+{
+    switch (encoding)
+    {
+    case 0x00: AX.set_lower(value); break;
+    case 0x01: BX.set_lower(value); break;
+    case 0x02: CX.set_lower(value); break;
+    case 0x03: DX.set_lower(value); break;
+    case 0x04: AX.set_upper(value); break;
+    case 0x05: BX.set_upper(value); break;
+    case 0x06: CX.set_upper(value); break;
+    case 0x07: DX.set_upper(value); break;
+
+    case 0x08: AX.value = value; break;
+    case 0x09: BX.value = value; break;
+    case 0x0A: CX.value = value; break;
+    case 0x0B: DX.value = value; break;
+    case 0x0C: SI.value = value; break;
+    case 0x0D: DI.value = value; break;
+    case 0x0E: SP.value = value; break;
+    case 0x0F: BP.value = value; break;
+
+    case 0x10: R8 = value; break;
+    case 0x11: R9 = value; break;
+    case 0x12: R10 = value; break;
+    case 0x13: R11 = value; break;
+    case 0x14: R12 = value; break;
+    case 0x15: R13 = value; break;
+    case 0x16: R14 = value; break;
+    case 0x17: R15 = value; break;
+    }
+}
+
 ProgramEnvironment::ProgramEnvironment(SleepyDiscord::Message message, std::string programCode, bool dumpMemory, bool dumpFull, BotClient *client)
 {
     this->originalMessage = message;
@@ -88,7 +154,7 @@ bool ProgramEnvironment::compile()
                     memory[compilerPointer++] = CPU::INS_MOV_RV;
                     memory[compilerPointer++] = CPU::registerEncoding[tokens[1]];
                     memory[compilerPointer++] = CPU::POINTER_INDICATOR;
-                    memory[compilerPointer++] = CPU::registerEncoding[tokens[2].substr(1, tokens[2].length() - 1)];
+                    memory[compilerPointer++] = CPU::registerEncoding[tokens[2].substr(1, tokens[2].length() - 2)];
                 }
                 else if (tarsutils::valid_hex_string(tokens[2])) // Value is a number
                 {
@@ -158,6 +224,53 @@ bool ProgramEnvironment::compile()
 
 bool ProgramEnvironment::run()
 {
+
+    while (processor.PC < MEM::MAX_MEM)
+    {
+        Byte instruction = processor.read_byte(memory);
+
+        switch (instruction)
+        {
+        case CPU::INS_MOV_RV:
+        {
+            Byte destinationEncoding = processor.read_byte(memory);
+            Byte sourceEncoding = processor.read_byte(memory);
+
+            if (sourceEncoding == processor.POINTER_INDICATOR) // Value is address pointer
+            {
+                Byte registerWithPointer = processor.read_byte(memory);
+
+                processor.set_register_value(destinationEncoding, memory[processor.get_register_value(registerWithPointer)]);
+            }
+            else
+            {
+                processor.set_register_value(destinationEncoding, processor.get_register_value(sourceEncoding));
+            }
+
+        }break;
+        case CPU::INS_MOV_IM:
+        {
+            Byte destinationEncoding = processor.read_byte(memory);
+
+            std::vector<Byte> bytes;
+
+            for (int i = 0; i < tarsutils::get_register_size(destinationEncoding) / 8; i++)
+            {
+                bytes.push_back(processor.read_byte(memory));
+            }
+
+            uint64_t value;
+            std::memcpy(&value, &bytes[0], tarsutils::get_register_size(destinationEncoding) / 8);
+
+            processor.set_register_value(destinationEncoding, value);
+        }break;
+        case 0x00:
+        {
+            continue;
+        }break;
+        }
+    }
+
 
     if (dumpMemory) dump_memory("Post-execution State of Memory:");
 

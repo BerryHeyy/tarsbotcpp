@@ -11,9 +11,9 @@ void BotClient::onMessage(SleepyDiscord::Message message)
 
     std::string messageContent = message.content;
 
-    if (messageContent.find("&", 0) == 0)
+    if (messageContent.find("```\n&\n", 0) == 0)
     {
-        messageContent = messageContent.substr(1);
+        messageContent = messageContent.substr(6, messageContent.length() - 9);
 
         bool dumpMemory = messageContent.rfind("--dumpMemory") != std::string::npos;
         bool dumpFull = messageContent.rfind("--dumpMemoryFull") != std::string::npos;

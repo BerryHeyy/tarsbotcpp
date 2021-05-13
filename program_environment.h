@@ -141,6 +141,9 @@ public:
     {
         memory[SP.value++] = toWrite;
     }
+
+    uint64_t get_register_value(Byte encoding);
+    void set_register_value(Byte encoding, uint64_t value);
 };
 
 class ProgramEnvironment
