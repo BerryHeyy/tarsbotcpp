@@ -86,6 +86,8 @@ public:
     uint64_t R8, R9, R10, R11, R12, R13,
         R14, R15;
 
+    Byte CF : 1;
+
 public:
 
     static constexpr Byte // Op Codes
@@ -98,9 +100,10 @@ public:
         INS_JMP = 0x07,
         INS_CALL = 0x08,
         INS_RET = 0x09,
-        INS_PRTC = 0x0A,
-        INS_ADD = 0x0B,
+        INS_PRTC_IM = 0x0A,
+        INS_ADD_IM = 0x0B,
         INS_MOV_RV = 0x0C,
+        INS_PRTC_RV = 0x0D,
         // Pseudo Ops
         INS_DB = 0xF0;
 
@@ -117,6 +120,7 @@ public:
         PC = 0x0200;
         SP.value = 0x0100;
         R8 = R9 = R10 = R11 = R12 = R13 = R14 = R15 = 0;
+        CF = 0;
     }
 
     Byte read_byte(MEM &memory)
@@ -154,6 +158,8 @@ private:
     SleepyDiscord::Message originalMessage;
     std::string programCode;
     bool dumpMemory, dumpFull;
+
+    std::string consoleBuffer;
 
     CPU processor;
     MEM memory;

@@ -248,6 +248,120 @@ bool ProgramEnvironment::compile()
         {
             memory[compilerPointer++] = CPU::INS_RET;
         }
+        else if (tokens[0] == "add")
+        {
+            if (CPU::registerEncoding.count(tokens[1]) > 0) // Destination exists
+            {
+                if (tarsutils::valid_hex_string(tokens[2])) // Value is a number
+                {
+                    int regBits = tarsutils::get_register_size(CPU::registerEncoding[tokens[1]]);
+                    int valueBits = tarsutils::get_bits(std::stoull(tokens[2], nullptr, 16));
+                    if (regBits >= valueBits)
+                    {
+                        memory[compilerPointer++] = CPU::INS_ADD_IM;
+                        memory[compilerPointer++] = CPU::registerEncoding[tokens[1]];
+
+                        std::vector<Byte> bytes = tarsutils::int_to_little_endian_byte_array(std::stoull(tokens[2], nullptr, 16));
+
+                        for (int i = 0; i < bytes.size(); i++)
+                        {
+                            memory[compilerPointer++] = bytes[i];
+                        }
+
+                        float remainingBytes = regBits / 8 - bytes.size();
+
+                        if (remainingBytes / 8.0f != 0.0f)
+                        {
+                            while (remainingBytes > 0)
+                            {
+                                memory[compilerPointer++] = 0x00;
+                                remainingBytes--;
+                            }
+                        }
+                    }
+                    else // Throw overflow
+                    {
+                        throw_possible_overflow_exception(lines[i], tarsutils::get_bits(std::stoull(tokens[2], nullptr, 16)), tarsutils::get_register_size(CPU::registerEncoding[tokens[1]]));
+                        return false;
+                    }
+                }
+            }
+        }
+        else if (tokens[0] == "cmp")
+        {
+            if (tarsutils::valid_hex_string(tokens[2])) // Value is a number
+            {
+                int regBits = tarsutils::get_register_size(CPU::registerEncoding[tokens[1]]);
+                int valueBits = tarsutils::get_bits(std::stoull(tokens[2], nullptr, 16));
+                if (regBits >= valueBits)
+                {
+                    memory[compilerPointer++] = CPU::INS_CMP_IM;
+                    memory[compilerPointer++] = CPU::registerEncoding[tokens[1]];
+
+                    std::vector<Byte> bytes = tarsutils::int_to_little_endian_byte_array(std::stoull(tokens[2], nullptr, 16));
+
+                    for (int i = 0; i < bytes.size(); i++)
+                    {
+                        memory[compilerPointer++] = bytes[i];
+                    }
+
+                    float remainingBytes = regBits / 8 - bytes.size();
+
+                    if (remainingBytes / 8.0f != 0.0f)
+                    {
+                        while (remainingBytes > 0)
+                        {
+                            memory[compilerPointer++] = 0x00;
+                            remainingBytes--;
+                        }
+                    }
+                }
+                else // Throw overflow
+                {
+                    throw_possible_overflow_exception(lines[i], tarsutils::get_bits(std::stoull(tokens[2], nullptr, 16)), tarsutils::get_register_size(CPU::registerEncoding[tokens[1]]));
+                    return false;
+                }
+            }
+        }
+        else if (tokens[0] == "jne")
+        {
+            memory[compilerPointer++] = CPU::INS_JNE;
+
+            labelReferences[tokens[1]] = compilerPointer;
+            compilerPointer += 2;
+        }
+        else if (tokens[0] == "prtc")
+        {
+            if (CPU::registerEncoding.count(tokens[1]) > 0) // Value is another register
+            {
+                //if (tarsutils::get_register_size(CPU::registerEncoding[tokens[1]]) >=
+                //    tarsutils::get_register_size(CPU::registerEncoding[tokens[2]]))
+                //else // registers different sizes
+
+                memory[compilerPointer++] = CPU::INS_PRTC_RV;
+                memory[compilerPointer++] = CPU::registerEncoding[tokens[1]];
+            }
+            else if ((tokens[1].find('[') == 0) && (tokens[1].rfind(']') == tokens[1].length() - 1)) // Value is a pointer register
+            {
+                memory[compilerPointer++] = CPU::INS_PRTC_RV;
+                memory[compilerPointer++] = CPU::POINTER_INDICATOR;
+                memory[compilerPointer++] = CPU::registerEncoding[tokens[1].substr(1, tokens[1].length() - 2)];
+            }
+            else if (tarsutils::valid_hex_string(tokens[1])) // Value is a number
+            {
+                int valueBits = tarsutils::get_bits(std::stoull(tokens[1], nullptr, 16));
+                if (8 >= valueBits)
+                {
+                    memory[compilerPointer++] = CPU::INS_PRTC_IM;
+                    memory[compilerPointer++] = std::stoull(tokens[1], nullptr, 16);
+                }
+                else // Throw overflow
+                {
+                    throw_possible_overflow_exception(lines[i], tarsutils::get_bits(std::stoull(tokens[2], nullptr, 16)), 8);
+                    return false;
+                }
+            }
+        }
         else // Check for label
         {
             if (tokens[0].rfind(':') == tokens[0].length() - 1) // First token is a label
@@ -337,7 +451,7 @@ bool ProgramEnvironment::run()
                 bytes.push_back(processor.read_byte(memory));
             }
 
-            uint64_t value;
+            uint64_t value = 0;
             std::memcpy(&value, &bytes[0], tarsutils::get_register_size(destinationEncoding) / 8);
 
             processor.set_register_value(destinationEncoding, value);
@@ -363,6 +477,64 @@ bool ProgramEnvironment::run()
         {
             processor.PC = processor.DI.value;
         }break;
+        case CPU::INS_ADD_IM:
+        {
+            Byte destinationEncoding = processor.read_byte(memory);
+
+            std::vector<Byte> bytes;
+
+            for (int i = 0; i < tarsutils::get_register_size(destinationEncoding) / 8; i++)
+            {
+                bytes.push_back(processor.read_byte(memory));
+            }
+
+            uint64_t value = 0;
+            std::memcpy(&value, &bytes[0], tarsutils::get_register_size(destinationEncoding) / 8);
+
+            processor.set_register_value(destinationEncoding, processor.get_register_value(destinationEncoding) + value);
+        }break;
+        case CPU::INS_CMP_IM:
+        {
+            Byte destinationEncoding = processor.read_byte(memory);
+
+            std::vector<Byte> bytes;
+
+            for (int i = 0; i < tarsutils::get_register_size(destinationEncoding) / 8; i++)
+            {
+                bytes.push_back(processor.read_byte(memory));
+            }
+
+            uint64_t value = 0;
+            std::memcpy(&value, &bytes[0], tarsutils::get_register_size(destinationEncoding) / 8);
+
+            // Setting Flags
+            processor.CF = (processor.get_register_value(destinationEncoding) == value);
+        }break;
+        case CPU::INS_JNE:
+        {
+            Word readWord = processor.read_byte(memory) | (processor.read_byte(memory) << 8);
+            if (processor.CF != 1) processor.PC = readWord;
+        }break;
+        case CPU::INS_PRTC_IM:
+        {
+            Byte character = processor.read_byte(memory);
+            consoleBuffer += (char)character;
+        }break;
+        case CPU::INS_PRTC_RV:
+        {
+            Byte sourceEncoding = processor.read_byte(memory);
+
+            if (sourceEncoding == CPU::POINTER_INDICATOR)
+            {
+                Byte registerWithPointer = processor.read_byte(memory);
+
+                consoleBuffer += (char)memory[processor.get_register_value(registerWithPointer)];
+            }
+            else
+            {
+                consoleBuffer += (char)processor.get_register_value(sourceEncoding);
+            }
+        }
         case 0x00:
         {
             continue;
@@ -372,6 +544,8 @@ bool ProgramEnvironment::run()
 
 
     if (dumpMemory) dump_memory("Post-execution State of Memory:");
+
+    client->sendMessage(originalMessage.channelID, consoleBuffer);
 
     return true;
 }
